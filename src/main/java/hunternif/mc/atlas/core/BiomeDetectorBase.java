@@ -3,6 +3,7 @@ package hunternif.mc.atlas.core;
 import java.util.Arrays;
 
 import hunternif.mc.atlas.ext.ExtTileIdMap;
+import hunternif.mc.atlas.util.ByteUtil;
 import net.minecraft.block.Block;
 import net.minecraft.init.Blocks;
 import net.minecraft.world.biome.BiomeGenBase;
@@ -79,8 +80,12 @@ public class BiomeDetectorBase implements IBiomeDetector {
 	@Override
 	public int getBiomeID(Chunk chunk) {
 		BiomeGenBase[] biomes = BiomeGenBase.getBiomeGenArray();
-		// Read the biome byte[] directly instead of allocating an int[] copy of it.
-		byte[] chunkBiomes = chunk.getBiomeArray();
+		// Convert the chunk's biome byte[] to an int[] via ByteUtil.unsignedByteToIntArray.
+		// This call site is deliberately preserved: EndlessIDs @Redirects it (and the
+		// chunk.getBiomeArray() call feeding it) in BiomeDetectorBaseMixin to inject its
+		// extended (>255) biome IDs as a short[]. Reading the byte[] directly would drop
+		// that redirect and both crash EndlessIDs' injection check and lose extended IDs.
+		int[] chunkBiomes = ByteUtil.unsignedByteToIntArray(chunk.getBiomeArray());
 		// Reuse a per-thread occurrence counter instead of allocating one per chunk.
 		int[] biomeOccurrences = occurrencesScratch.get();
 		if (biomeOccurrences.length < biomes.length) {
@@ -98,7 +103,7 @@ public class BiomeDetectorBase implements IBiomeDetector {
 
 		for (int x = 0; x < 16; x++) {
 			for (int z = 0; z < 16; z++) {
-				int biomeID = chunkBiomes[x << 4 | z] & 0xFF;
+				int biomeID = chunkBiomes[x << 4 | z];
 				if (doScanPonds) {
 					int y = chunk.getHeightValue(x, z);
 					if (y > 0) {
