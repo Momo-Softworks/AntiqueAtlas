@@ -8,7 +8,6 @@ import net.minecraft.block.Block;
 import net.minecraft.init.Blocks;
 import net.minecraft.world.biome.BiomeGenBase;
 import net.minecraft.world.chunk.Chunk;
-import net.minecraft.world.chunk.NibbleArray;
 import net.minecraft.world.chunk.storage.ExtendedBlockStorage;
 import net.minecraftforge.common.BiomeDictionary;
 import net.minecraftforge.common.BiomeDictionary.Type;
@@ -32,13 +31,6 @@ public class BiomeDetectorBase implements IBiomeDetector {
 	private static final boolean[] waterBiomes = new boolean[256];
 	/** Set to true for biome IDs that return true for BiomeDictionary.isBiomeOfType(BEACH) */
 	private static final boolean[] beachBiomes = new boolean[256];
-
-	/** Block IDs of still water / still lava, resolved once at class load. The original
-	 * code compared Block objects (chunk.getBlock(...) == Blocks.water); comparing the raw
-	 * integer block IDs is equivalent but lets the pond scan skip the block-registry lookup
-	 * that Chunk.getBlock performs for every single column. */
-	private static final int waterBlockID = Block.getIdFromBlock(Blocks.water);
-	private static final int lavaBlockID = Block.getIdFromBlock(Blocks.lava);
 
 	/** Per-thread scratch buffer for counting biome occurrences, reused between calls so
 	 * getBiomeID does not allocate a fresh int[256] on every chunk scan. getBiomeID can run
@@ -111,11 +103,11 @@ public class BiomeDetectorBase implements IBiomeDetector {
 						// TODO: check if 1.8 fixes this!
 						// Check if there's surface of water at (x, z), but not swamp.
 						// Water sits just below the height-map value.
-						if (blockIdAt(storage, x, y - 1, z) == waterBlockID &&
+						if (blockAt(storage, x, y - 1, z) == Blocks.water &&
 								biomeID != BiomeGenBase.swampland.biomeID &&
 								biomeID != BiomeGenBase.swampland.biomeID + 128) {
 							biomeOccurrences[waterPoolBiomeID] += priorityWaterPool;
-						} else if (blockIdAt(storage, x, y, z) == lavaBlockID) {
+						} else if (blockAt(storage, x, y, z) == Blocks.lava) {
 							lavaOccurences += prioritylavaPool;
 						}
 					}
@@ -142,22 +134,20 @@ public class BiomeDetectorBase implements IBiomeDetector {
 		return meanBiomeId;
 	}
 
-	/** Raw block ID at chunk-local coordinates (x, z in 0..15, y in world space), read
-	 * straight from the chunk's block storage. This avoids the block-registry lookup that
-	 * Chunk.getBlock does per call. Returns 0 (air) for empty or out-of-range sections,
-	 * which matches Chunk.getBlock's behaviour for the water/lava comparisons done above. */
-	private static int blockIdAt(ExtendedBlockStorage[] storage, int x, int y, int z) {
-		if (y < 0) return 0;
+	/** Block at chunk-local coordinates (x, z in 0..15, y in world space), read from the
+	 * chunk's block storage that was fetched once per chunk. This still skips Chunk.getBlock's
+	 * per-call section lookup and try/catch, but goes through ExtendedBlockStorage.getBlockByExtId
+	 * — the accessor EndlessIDs @Overwrites to return correct extended block IDs. Reading the raw
+	 * getBlockLSBArray()/getBlockMSBArray() instead trips EndlessIDs' emergencyCrash (it spreads
+	 * block IDs across up to four arrays), which crashed players on movement. getBlockByExtId is
+	 * also the plain vanilla method when EndlessIDs is absent, so this stays dependency-free.
+	 * Returns air for empty or out-of-range sections, matching Chunk.getBlock's behaviour. */
+	private static Block blockAt(ExtendedBlockStorage[] storage, int x, int y, int z) {
+		if (y < 0) return Blocks.air;
 		int section = y >> 4;
-		if (section >= storage.length) return 0;
+		if (section >= storage.length) return Blocks.air;
 		ExtendedBlockStorage ebs = storage[section];
-		if (ebs == null) return 0;
-		int idx = ((y & 15) << 8) | (z << 4) | x;
-		int id = ebs.getBlockLSBArray()[idx] & 0xFF;
-		NibbleArray msb = ebs.getBlockMSBArray();
-		if (msb != null) {
-			id |= msb.get(x, y & 15, z) << 8;
-		}
-		return id;
+		if (ebs == null) return Blocks.air;
+		return ebs.getBlockByExtId(x, y & 15, z);
 	}
 }
