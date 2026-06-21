@@ -1,78 +1,63 @@
-buildscript {
-    repositories {
-        mavenCentral()
-        maven {
-            name = "forge"
-            url = "http://files.minecraftforge.net/maven"
-        }
-        maven {
-            name = "sonatype"
-            url = "https://oss.sonatype.org/content/repositories/snapshots/"
-        }
+plugins {
+    id 'java'
+    // Modern 1.7.10 toolchain, replaces the legacy ForgeGradle 1.2 'forge' plugin.
+    id 'com.gtnewhorizons.retrofuturagradle' version '1.4.9'
+}
+
+group = 'hunternif.mc.atlas'
+ext.mod_version = "${version_major}.${version_minor}.${version_patch}"
+version = "${mc_version}-${mod_version}" // ends up in the jar file name
+
+base {
+    archivesName = 'antiqueatlas'
+}
+
+println "Building antiqueatlas ${version}"
+
+java {
+    toolchain {
+        // Compile/run the mod with Java 8. No vendor is pinned on purpose so the
+        // Guix-provided icedtea (OpenJDK 8) toolchain is accepted (see rfg-build.sh);
+        // pinning a vendor would make Gradle try to download a JDK, which can't run
+        // on Guix System.
+        languageVersion = JavaLanguageVersion.of(8)
     }
-    dependencies {
-        classpath 'net.minecraftforge.gradle:ForgeGradle:1.2-SNAPSHOT'
+    withSourcesJar()
+}
+
+minecraft {
+    mcVersion = mc_version
+    // Forge and FML are included by default for 1.7.10 (usesForge/usesFml default true).
+
+    // Generate hunternif/mc/atlas/Tags.java with VERSION = mod_version. Referenced from
+    // AntiqueAtlasMod (replaces the old ForgeGradle `replace '@VERSION@', ...`). This is
+    // RFG's recommended approach over the hacky javac-plugin token replacement.
+    injectedTags.put('VERSION', mod_version)
+}
+
+tasks.injectTags.configure {
+    outputClassName = 'hunternif.mc.atlas.Tags'
+}
+
+processResources {
+    inputs.property 'mod_version', mod_version
+    inputs.property 'mc_version', mc_version
+    // Fill ${version} and ${mcversion} in mcmod.info.
+    filesMatching('mcmod.info') {
+        expand 'version': mod_version, 'mcversion': mc_version
     }
 }
 
-apply plugin: 'forge'
-
-group= "hunternif.mc.atlas"
-archivesBaseName = "antiqueatlas"
-
-ext.mod_version = "$version_major.$version_minor.$version_patch"
-version = "$mc_version-$mod_version" // This will be in the jar file name
-
-println "Building " + archivesBaseName + " " + version
-
-minecraft {
-    version = mc_version + '-' + forge_version
-    if (file('../run').exists()) {
-		runDir = "../run"
-	} else {
-		runDir = "run"
-	}
-	
-	replace '@VERSION@', project.mod_version
+repositories {
+    maven {
+        // Provides RFG's rfg-javac-plugin (the @VERSION@ tag processor) and other GTNH artifacts.
+        name = 'GTNH Maven'
+        url = uri('https://nexus.gtnewhorizons.com/repository/public/')
+    }
+    mavenCentral()
 }
 
 dependencies {
-    testCompile "junit:junit:4.+"
-}
-
-processResources
-{
-	// this will ensure that this task is redone when the versions change.
-    inputs.property "mod_version", project.mod_version
-    inputs.property "mc_version", project.mc_version
-	
-    // replace stuff in mcmod.info, nothing else
-    from(sourceSets.main.resources.srcDirs) {
-        include 'mcmod.info'
-                
-        // replace version and mc_version
-        expand 'version':project.mod_version, 'mcversion':project.mc_version
-    }
-        
-    // copy everything else, thats not the mcmod.info
-    from(sourceSets.main.resources.srcDirs) {
-        exclude 'mcmod.info'
-    }
-}
-
-task deobfJar(type: Jar) {
-    from sourceSets.main.output
-    classifier = 'deobf'
-}
-
-task sourceJar(type: Jar) {
-    from sourceSets.main.allSource
-    classifier = 'sources'
-}
-
-tasks.build.dependsOn('sourceJar', 'deobfJar')
-
-artifacts {
-	archives deobfJar 
-	archives sourceJar
+    testImplementation 'junit:junit:4.13.2'
+    // Minecraft/Forge are provided automatically by RetroFuturaGradle.
 }

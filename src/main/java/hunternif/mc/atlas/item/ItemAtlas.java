@@ -117,22 +117,28 @@ public class ItemAtlas extends Item {
 				
 				// If there's no custom tile, check the actual chunk:
 				if (biomeId == -1) {
+					boolean alreadySeen = oldTile != null;
+					// If the chunk has been scanned previously, only re-scan it so often.
+					// Bail out before fetching the chunk so the common steady-state case
+					// (an already-explored area between rescans) does no work at all.
+					if (alreadySeen &&
+							(!settings.doRescan || player.ticksExisted % rescanInterval != 0)) {
+						continue;
+					}
+
 					Chunk chunk = player.worldObj.getChunkFromChunkCoords(x, z);
 					// Force loading of chunk, if required:
 					if (settings.forceChunkLoading && !chunk.isChunkLoaded) {
 						player.worldObj.getChunkProvider().loadChunk(x << 4, z << 4);
 					}
 					// Skip chunk if it hasn't loaded yet:
-					if (!chunk.isChunkLoaded) { 
+					if (!chunk.isChunkLoaded) {
 						continue;
 					}
-					
-					if (oldTile != null) {
-						// If the chunk has been scanned previously, only re-scan it so often:
-						if (!settings.doRescan || player.ticksExisted % rescanInterval != 0) {
-							continue;
-						}
-						biomeId = biomeDetector.getBiomeID(chunk);
+
+					biomeId = biomeDetector.getBiomeID(chunk);
+					if (alreadySeen) {
+						// Re-scanning a previously mapped chunk:
 						if (biomeId == IBiomeDetector.NOT_FOUND) {
 							// If the new tile is empty, remove the old one:
 							data.removeTile(player.dimension, x, z);
@@ -142,7 +148,6 @@ public class ItemAtlas extends Item {
 						}
 					} else {
 						// Scanning new chunk:
-						biomeId = biomeDetector.getBiomeID(chunk);
 						if (biomeId != IBiomeDetector.NOT_FOUND) {
 							data.setTile(player.dimension, x, z, new Tile(biomeId));
 						}
